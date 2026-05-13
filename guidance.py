@@ -3,16 +3,20 @@ class GuidanceSystem:
         score = top_risk["risk_score"]
         obj = top_risk["object"]
         
-        # Determine side
-        side = "left" if top_risk["center_x"] < 300 else "right"
-        if top_risk["alignment"] > 0.8: side = "center"
+        # Spatial orientation
+        if top_risk["alignment"] > 0.7:
+            loc = "directly ahead"
+        elif top_risk["center_x"] < 300:
+            loc = "on your left"
+        else:
+            loc = "on your right"
 
-        # Sophisticated Judgement Levels
-        if score > 80:
-            return f"EMERGENCY: {obj} CRITICAL {side.upper()}! STOP!"
-        elif score > 40:
-            return f"High Risk: {obj} moving toward {side}."
-        elif score > 20:
-            return f"Caution: {obj} on {side}."
+        # Judgement logic
+        if score > 150:
+            return f"CRITICAL! {obj.upper()} {loc.upper()}! STOP NOW!"
+        elif score > 70:
+            return f"Warning: {obj} approaching {loc}."
+        elif score > 30:
+            return f"Note: {obj} {loc}."
         else:
             return "Path clear."
