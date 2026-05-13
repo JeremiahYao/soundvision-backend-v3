@@ -2,29 +2,31 @@ import math
 
 class RiskEngine:
     def __init__(self):
-        # Weighted by Kinetic Energy (Lethality)
-        self.weights = {
-            "bus": 20, "truck": 20, "car": 12, 
-            "motorcycle": 8, "bicycle": 5, "person": 3
-        }
+        self.weights = {"car": 12, "truck": 15, "bus": 15, "person": 4, "bicycle": 6}
 
     def evaluate(self, spatial_data):
         if not spatial_data: return None
 
+        scored_objects = []
         for obj in spatial_data:
-            wo = self.weights.get(obj["object"], 1.0)
+            wo = self.weights.get(obj["object"], 2)
             
-            # Distance scales exponentially (the closer it is, the riskier it gets fast)
-            dist_score = math.exp(obj["proximity"] * 3) 
+            # The "Perfect" Formula:
+            # Risk = (Base Weight * e^Proximity) * PathWeight^3 * Velocity
+            # Cubing PathWeight ensures objects slightly to the side (0.5) 
+            # become negligible (0.125).
             
-            # Alignment is cubic: this is the "Secret Sauce" 
-            # It kills the risk for anything not directly in front of the user
-            path_multiplier = obj["alignment"] ** 3
+            raw_risk = wo * math.exp(obj["proximity"] * 2.5)
+            path_weight = obj["in_path"] ** 3
             
-            obj["risk_score"] = wo * dist_score * path_multiplier * obj["speed_factor"]
+            final_score = raw_risk * path_weight * obj["velocity"]
+            
+            # Noise Floor: Ignore everything below a certain score to keep it 'smart'
+            if final_score > 8.0:
+                scored_objects.append({**obj, "risk_score": final_score})
 
-        # Only consider objects that are actually a threat (Noise Floor)
-        valid_threats = [o for o in spatial_data if o["risk_score"] > 5.0]
-        valid_threats.sort(key=lambda x: x["risk_score"], reverse=True)
+        if not scored_objects: return None
         
-        return valid_threats[0] if valid_threats else None
+        # Sort and return the single most relevant threat
+        scored_objects.sort(key=lambda x: x["risk_score"], reverse=True)
+        return scored_objects[0]
