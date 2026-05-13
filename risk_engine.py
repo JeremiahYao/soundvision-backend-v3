@@ -2,12 +2,12 @@ import math
 
 class RiskEngine:
     def __init__(self):
-        # Professional Hazard Weights
+        # Specific weights based on kinetic energy/lethality
         self.weights = {
-            "car": 8.0, "truck": 10.0, "bus": 10.0, 
-            "motorcycle": 7.0, "person": 4.0, "bicycle": 3.0
+            "bus": 15.0, "truck": 15.0, "car": 10.0, 
+            "motorcycle": 8.0, "bicycle": 5.0, "person": 4.0
         }
-        self.beta = 1.5 # Boosts center-path threats significantly
+        self.beta = 2.5 # Extremely high penalty for being in the center path
 
     def evaluate(self, spatial_data):
         if not spatial_data: return None
@@ -15,15 +15,15 @@ class RiskEngine:
         for obj in spatial_data:
             wo = self.weights.get(obj["object"], 1.0)
             
-            # The Sophisticated Math:
-            # 1. Exponential proximity: Risk doubles as it gets closer to the bottom
-            dist_score = math.exp(obj["proximity"] * 2) 
+            # EXPONENTIAL distance score: 10^prox
+            # This makes a "near" object significantly more weighted than "medium"
+            dist_score = 10 ** obj["proximity"]
             
-            # 2. Square Alignment: Only focus heavily on what is DIRECTLY in front
-            align_score = 1 + (self.beta * (obj["alignment"] ** 2))
+            # CUBIC alignment: If it's not in your path, ignore it.
+            # If it IS in your path, the risk triples.
+            path_score = 1 + (self.beta * (obj["alignment"] ** 3))
             
-            # 3. Combine with Speed Factor
-            obj["risk_score"] = wo * dist_score * align_score * obj["speed_factor"]
+            obj["risk_score"] = wo * dist_score * path_score * obj["speed_multiplier"]
 
         spatial_data.sort(key=lambda x: x["risk_score"], reverse=True)
         return spatial_data[0]
