@@ -4,7 +4,33 @@ from detector import Detector
 from spatial import SpatialAnalyzer
 from risk_engine import RiskEngine
 from guidance import GuidanceSystem
+from tracker import ObjectTracker # Import the new stabilizer
 
+def run_soundvision(video_path, output_name):
+    # ... setup code ...
+    detector = Detector()
+    tracker = ObjectTracker() # Initialize stabilizer
+    spatial = SpatialAnalyzer()
+    engine = RiskEngine()
+    guidance = GuidanceSystem()
+
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret: break
+
+        # 1. Raw Detections
+        raw_detections = detector.detect(frame)
+        
+        # 2. STABILIZE: This stops the '1000 bounces per second'
+        stable_detections = tracker.smooth_and_track(raw_detections)
+        
+        # 3. Analyze 3D Space
+        analyzed = spatial.analyze(stable_detections, width, height, frame_id)
+        
+        # 4. Evaluate Top Threat
+        top_risk = engine.evaluate(analyzed)
+        
+        # ... rest of your code ...
 def run_soundvision(video_path, output_name):
     cap = cv2.VideoCapture(video_path)
     width, height = int(cap.get(3)), int(cap.get(4))
