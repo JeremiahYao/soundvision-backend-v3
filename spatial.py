@@ -2,43 +2,53 @@ import numpy as np
 
 class SpatialAnalyzer:
     def __init__(self):
-        self.history = {} # To track object movement over frames
+        self.history = {} # Stores previous positions to calculate velocity
 
     def analyze(self, detections, frame_width, frame_height, frame_id):
         analyzed_data = []
         current_frame_objects = {}
+        
+        # Define the 'Ground' - things at the very bottom are at your feet
+        horizon_line = frame_height * 0.4 
 
         for obj in detections:
             x1, y1, x2, y2 = obj["bbox"]
-            obj_id = f"{obj['object']}_{x1}_{y1}" # Simple ID tracking
+            obj_label = obj["object"]
             
-            # 1. 3D Distance Proxy (using 'y2' - bottom of the box)
-            # Higher y2 = closer to the user's feet
-            proximity = y2 / frame_height 
-            
-            # 2. Centeredness (Alignment)
-            center_x = (x1 + x2) / 2
-            # 0.0 at edges, 1.0 at dead center
-            alignment = 1.0 - (abs(center_x - (frame_width / 2)) / (frame_width / 2))
+            # 1. Perspective-Corrected Distance
+            # Objects near the horizon are far; objects at the bottom are critical.
+            # We use a quadratic scale because distance isn't linear in a 2D image.
+            normalized_y = (y2 - horizon_line) / (frame_height - horizon_line)
+            proximity = max(0, normalized_y) ** 2 
 
-            # 3. Velocity Estimation (Sf)
-            # We compare position to the last frame to see if it's getting closer
-            speed_factor = 1.0
-            if obj_id in self.history:
-                prev_y2 = self.history[obj_id]
+            # 2. Tracking Velocity (Change in Y over time)
+            speed_multiplier = 1.0
+            obj_key = f"{obj_label}_{int(x1/50)}" # Grouping objects by rough location
+            
+            if obj_key in self.history:
+                prev_y2 = self.history[obj_key]
                 delta_y = y2 - prev_y2
-                if delta_y > 0: # Object is moving "down" the screen (toward user)
-                    speed_factor = 1.0 + (delta_y / 10) 
+                if delta_y > 2: # Moving toward user
+                    speed_multiplier = 1.0 + (delta_y / 5.0)
+                elif delta_y < -2: # Moving away from user
+                    speed_multiplier = 0.5
 
-            current_frame_objects[obj_id] = y2
+            current_frame_objects[obj_key] = y2
             
+            # 3. Path Alignment (The 'Danger Zone')
+            center_x = (x1 + x2) / 2
+            # High value (1.0) if in the center 30% of the screen
+            lane_width = frame_width * 0.3
+            dist_from_center = abs(center_x - (frame_width / 2))
+            alignment = max(0, 1.0 - (dist_from_center / lane_width))
+
             analyzed_data.append({
                 **obj,
                 "proximity": proximity,
+                "speed_multiplier": speed_multiplier,
                 "alignment": alignment,
-                "speed_factor": speed_factor,
                 "center_x": center_x
             })
-        
+            
         self.history = current_frame_objects
         return analyzed_data
