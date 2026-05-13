@@ -1,21 +1,57 @@
-frame_id = 0
-    process_every_n_frames = 3  # INCREASE THIS TO REDUCE LAG (e.g., 5 or 10)
+import cv2
+import os
+from detector import Detector
+from spatial import SpatialAnalyzer
+from risk_engine import RiskEngine
+from guidance import GuidanceSystem
+
+def run_soundvision(video_path, output_name):
+    cap = cv2.VideoCapture(video_path)
+    width, height = int(cap.get(3)), int(cap.get(4))
+    fps = cap.get(cv2.CAP_PROP_FPS) or 20.0
     
-    last_top_risk = None
-    last_message = "Path clear."
+    out = cv2.VideoWriter(f"/content/{output_name}.avi", 
+                         cv2.VideoWriter_fourcc(*'XVID'), fps, (width, height))
+
+    # Initialize components
+    detector = Detector()
+    spatial = SpatialAnalyzer()
+    engine = RiskEngine()
+    guidance = GuidanceSystem()
+
+    frame_id = 0
+    # LAG FIX: Only run AI every 4 frames (Adjust this: 1 = slow/precise, 10 = fast/coarse)
+    ai_step = 4 
+    
+    current_top_risk = None
+    current_msg = "Path clear."
 
     while cap.isOpened():
         ret, frame = cap.read()
         if not ret: break
 
-        if frame_id % process_every_n_frames == 0:
-            # Only run AI every N frames
+        if frame_id % ai_step == 0:
+            # 1. Detection (The heavy part)
             detections = detector.detect(frame)
+            # 2. Spatial Filtering (The perspective part)
             analyzed = spatial.analyze(detections, width, height, frame_id)
-            last_top_risk = engine.evaluate(analyzed)
-            last_message = guidance.generate(last_top_risk) if last_top_risk else "Path clear."
+            # 3. Risk Engine (The decision part)
+            current_top_risk = engine.evaluate(analyzed)
+            # 4. Guidance (The human part)
+            current_msg = guidance.generate(current_top_risk) if current_top_risk else "Path clear."
 
-        # Still draw and write every frame so the video looks smooth
-        if last_top_risk:
-            # Draw overlay using the 'remembered' risk from the last AI pass
-            pass
+        # UI Overlay (Runs every frame for smoothness)
+        if current_top_risk:
+            x1, y1, x2, y2 = current_top_risk["bbox"]
+            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 3)
+            cv2.putText(frame, current_msg, (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+            # Display risk score for debugging
+            cv2.putText(frame, f"Score: {int(current_top_risk['risk_score'])}", (50, 90), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+
+        out.write(frame)
+        frame_id += 1
+        if frame_id % 100 == 0: print(f"Processed {frame_id} frames...")
+
+    cap.release()
+    out.release()
