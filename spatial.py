@@ -2,52 +2,49 @@ import numpy as np
 
 class SpatialAnalyzer:
     def __init__(self):
-        self.history = {} # Object tracking for velocity
+        self.tracking_history = {} # Keeps track of object motion vectors
 
     def analyze(self, detections, width, height, frame_id):
-        analyzed = []
-        # Define Horizon (40% down the screen)
-        horizon = height * 0.4
-        # Define the Walking Corridor (Trapezoid)
-        # Base (at user feet) is 60% of width, Top (at horizon) is 20% of width
+        # 1. Vanishing Point (VP) - The 'Perfection' Anchor
+        # Most cameras place the horizon at 40-50% height.
+        vp_y = height * 0.42 
         
+        analyzed_data = []
         for obj in detections:
             x1, y1, x2, y2 = obj["bbox"]
-            cx = (x1 + x2) / 2
+            cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
             
-            # 1. Ground Distance (The 'Feet' logic)
-            # 0.0 at horizon (far), 1.0 at bottom (instant danger)
-            ground_proximity = (y2 - horizon) / (height - horizon)
-            ground_proximity = max(0, min(1, ground_proximity))
-
-            # 2. Corridor Check (Is it in our 3D path?)
-            # As ground_proximity increases (closer), the allowed 'width' increases
-            dynamic_lane_width = (width * 0.2) + (ground_proximity * (width * 0.4))
-            dist_from_center = abs(cx - (width / 2))
+            # 2. Ground-Plane Distance (Non-Linear)
+            # Objects near the bottom (height) are infinitely closer than the VP.
+            proximity = (y2 - vp_y) / (height - vp_y)
+            proximity = max(0, min(1.0, proximity)) ** 2 # Quadratic for depth
             
-            # 1.0 if inside the trapezoid, drops to 0.0 outside
-            in_path_score = max(0, 1.0 - (dist_from_center / (dynamic_lane_width / 2)))
-
-            # 3. Intent/Velocity (Is it getting closer?)
-            obj_key = f"{obj['object']}_{int(cx/50)}"
-            velocity_multiplier = 1.0
-            area = (x2 - x1) * (y2 - y1)
+            # 3. Dynamic Walking Corridor (The 3D Trapezoid)
+            # The 'Danger Zone' narrows as it gets further away.
+            center_line = width / 2
+            # Allowable lane width: 25% at horizon, 70% at feet.
+            lane_width = (width * 0.25) + (proximity * (width * 0.45))
+            dist_from_center = abs(cx - center_line)
             
-            if obj_key in self.history:
-                prev_area, prev_y2 = self.history[obj_key]
-                # If area is growing OR feet are moving down the screen
-                if area > prev_area * 1.05 or y2 > prev_y2 + 5:
-                    velocity_multiplier = 1.5 # Approaching
-                elif area < prev_area * 0.95:
-                    velocity_multiplier = 0.5 # Retreating
+            # 1.0 = dead center, 0.0 = completely outside your lane.
+            alignment = max(0, 1.0 - (dist_from_center / (lane_width / 2)))
 
-            self.history[obj_key] = (area, y2)
-
-            analyzed.append({
+            # 4. Momentum (Velocity Tracking)
+            obj_id = f"{obj['object']}_{int(x1 / 30)}" # Simple temporal ID
+            velocity_boost = 1.0
+            if obj_id in self.tracking_history:
+                prev_y2 = self.tracking_history[obj_id]
+                # If it's moving DOWN the screen, it's getting CLOSER.
+                if y2 > prev_y2 + 3: velocity_boost = 1.6 
+                elif y2 < prev_y2 - 3: velocity_boost = 0.4 # Moving away
+            
+            self.tracking_history[obj_id] = y2
+            
+            analyzed_data.append({
                 **obj,
-                "proximity": ground_proximity,
-                "in_path": in_path_score,
-                "velocity": velocity_multiplier,
+                "proximity": proximity,
+                "alignment": alignment,
+                "velocity_boost": velocity_boost,
                 "center_x": cx
             })
-        return analyzed
+        return analyzed_data
