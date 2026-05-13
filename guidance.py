@@ -1,13 +1,18 @@
 class GuidanceSystem:
     def generate(self, top_risk):
-        if not top_risk or top_risk["risk_score"] < 5.0:
-            return "Path is clear."
-
+        score = top_risk["risk_score"]
         obj = top_risk["object"]
-        direction = top_risk["direction"]
         
-        # Priority warning logic based on risk score
-        if top_risk["risk_score"] > 15:
-            return f"DANGER! {obj} very close {direction}. STOP!"
+        # Determine side
+        side = "left" if top_risk["center_x"] < 300 else "right"
+        if top_risk["alignment"] > 0.8: side = "center"
+
+        # Sophisticated Judgement Levels
+        if score > 80:
+            return f"EMERGENCY: {obj} CRITICAL {side.upper()}! STOP!"
+        elif score > 40:
+            return f"High Risk: {obj} moving toward {side}."
+        elif score > 20:
+            return f"Caution: {obj} on {side}."
         else:
-            return f"Caution, {obj} {direction}."
+            return "Path clear."
