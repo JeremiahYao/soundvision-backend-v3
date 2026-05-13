@@ -2,49 +2,53 @@ import numpy as np
 
 class SpatialAnalyzer:
     def __init__(self):
-        self.tracking_history = {} # Keeps track of object motion vectors
+        self.history = {} # ID -> {last_y2, last_area, timestamp}
 
     def analyze(self, detections, width, height, frame_id):
-        # 1. Vanishing Point (VP) - The 'Perfection' Anchor
-        # Most cameras place the horizon at 40-50% height.
-        vp_y = height * 0.42 
+        analyzed = []
+        horizon = height * 0.42
         
-        analyzed_data = []
+        # Assume average human walking speed 'pushes' the ground down by 2% per frame
+        ego_motion_bias = 0.02 
+
         for obj in detections:
             x1, y1, x2, y2 = obj["bbox"]
-            cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
+            cx = (x1 + x2) / 2
             
-            # 2. Ground-Plane Distance (Non-Linear)
-            # Objects near the bottom (height) are infinitely closer than the VP.
-            proximity = (y2 - vp_y) / (height - vp_y)
-            proximity = max(0, min(1.0, proximity)) ** 2 # Quadratic for depth
-            
-            # 3. Dynamic Walking Corridor (The 3D Trapezoid)
-            # The 'Danger Zone' narrows as it gets further away.
-            center_line = width / 2
-            # Allowable lane width: 25% at horizon, 70% at feet.
-            lane_width = (width * 0.25) + (proximity * (width * 0.45))
-            dist_from_center = abs(cx - center_line)
-            
-            # 1.0 = dead center, 0.0 = completely outside your lane.
-            alignment = max(0, 1.0 - (dist_from_center / (lane_width / 2)))
+            # 1. 3D Distance Proxy
+            proximity = (y2 - horizon) / (height - horizon)
+            proximity = max(0, min(1.0, proximity))
 
-            # 4. Momentum (Velocity Tracking)
-            obj_id = f"{obj['object']}_{int(x1 / 30)}" # Simple temporal ID
-            velocity_boost = 1.0
-            if obj_id in self.tracking_history:
-                prev_y2 = self.tracking_history[obj_id]
-                # If it's moving DOWN the screen, it's getting CLOSER.
-                if y2 > prev_y2 + 3: velocity_boost = 1.6 
-                elif y2 < prev_y2 - 3: velocity_boost = 0.4 # Moving away
+            # 2. Vector Prediction (The "Future" Part)
+            obj_id = f"{obj['object']}_{int(cx/40)}"
+            ttc_factor = 1.0 # 1.0 is neutral
             
-            self.tracking_history[obj_id] = y2
-            
-            analyzed_data.append({
+            if obj_id in self.history:
+                prev_prox = self.history[obj_id]['prox']
+                # Delta is the change in proximity
+                # We subtract ego_motion_bias because the world naturally 'comes at us'
+                relative_closure = (proximity - prev_prox) - ego_motion_bias
+                
+                if relative_closure > 0.01:
+                    # Object is closing distance FASTER than we are walking
+                    # This is a high-speed approach or a collision course
+                    ttc_factor = 1.0 + (relative_closure * 10)
+                elif relative_closure < -0.01:
+                    # Object is moving away (Target is safe)
+                    ttc_factor = 0.3
+
+            self.history[obj_id] = {'prox': proximity}
+
+            # 3. Path Projection (Trapezoidal Danger Zone)
+            # This factors in the user moving forward into a narrowing tunnel
+            lane_width = (width * 0.2) + (proximity * (width * 0.5))
+            alignment = max(0, 1.0 - (abs(cx - width/2) / (lane_width/2)))
+
+            analyzed.append({
                 **obj,
                 "proximity": proximity,
                 "alignment": alignment,
-                "velocity_boost": velocity_boost,
+                "ttc_factor": ttc_factor,
                 "center_x": cx
             })
-        return analyzed_data
+        return analyzed
