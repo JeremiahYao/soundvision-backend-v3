@@ -2,33 +2,21 @@ import math
 
 class RiskEngine:
     def __init__(self):
-        # Lethality Weights (Car vs. Person)
-        self.weights = {
-            "bus": 25, "truck": 25, "car": 15, 
-            "motorcycle": 10, "bicycle": 7, "person": 4
-        }
+        self.weights = {"car": 15, "truck": 20, "bus": 20, "person": 5}
 
     def evaluate(self, spatial_data):
         if not spatial_data: return None
 
-        scored_list = []
+        scored = []
         for obj in spatial_data:
-            base_w = self.weights.get(obj["object"], 1.0)
+            w = self.weights.get(obj["object"], 2)
             
-            # EXPONENTIAL distance: Risk doubles every 10% it gets closer.
-            dist_score = math.exp(obj["proximity"] * 3.5)
+            # Distance + Alignment + Future Prediction
+            # Note: Alignment^4 kills 'side noise' almost entirely
+            score = (w * math.exp(obj["proximity"] * 3)) * (obj["alignment"] ** 4) * obj["ttc_factor"]
             
-            # CUBIC alignment: This is the "Perfection" filter.
-            # If a car is slightly to the side (0.5), risk drops to 0.125 (0.5^3).
-            # This SILENCES parked cars and cars in other lanes.
-            path_multiplier = obj["alignment"] ** 3
-            
-            final_score = base_w * dist_score * path_multiplier * obj["velocity_boost"]
+            if score > 15: # Critical threshold to avoid "chatty" AI
+                scored.append({**obj, "risk_score": score})
 
-            # Noise Filter: Only 'Smart' alerts
-            if final_score > 12.0:
-                scored_list.append({**obj, "risk_score": final_score})
-
-        if not scored_list: return None
-        scored_list.sort(key=lambda x: x["risk_score"], reverse=True)
-        return scored_list[0]
+        if not scored: return None
+        return sorted(scored, key=lambda x: x["risk_score"], reverse=True)[0]
